@@ -41,9 +41,9 @@ CONFIGURE_ARGS="
 --with-lcms=bundled
 --with-harfbuzz=bundled
 --with-freetype=bundled
---enable-headless-only
---disable-ccache
---without-cups
+  --enable-headless-only
+  --disable-ccache
+  --with-cups=$(xcrun --sdk macosx --show-sdk-path)/usr/include
 "
 
 # Static build (required for iOS) + JRE-only build
