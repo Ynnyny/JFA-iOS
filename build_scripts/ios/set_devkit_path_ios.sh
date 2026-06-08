@@ -43,7 +43,7 @@ CONFIGURE_ARGS="
 --with-freetype=bundled
 --enable-headless-only
 --disable-ccache
---disable-cups
+--without-cups
 "
 
 # Static build (required for iOS) + JRE-only build
