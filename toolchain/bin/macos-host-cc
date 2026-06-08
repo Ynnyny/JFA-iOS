@@ -1,0 +1,3 @@
+#!/bin/bash
+# macOS host compiler (arm64) — for tools that must run on the build host
+exec clang -target arm64-apple-macos15.0 "$@"

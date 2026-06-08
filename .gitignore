@@ -1,0 +1,7 @@
+# JFA-iOS — JDK 25 build scripts for iOS (Amethyst)
+/src_jdk25u/
+/boot-jdk/
+/build_output/
+*.tar.xz
+*.sha256
+*.log
