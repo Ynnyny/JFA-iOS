@@ -45,9 +45,6 @@ CONFIGURE_ARGS="
 --disable-ccache
 "
 
-# For static linking where possible
-CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-jvm-feature-static-build"
-
 # JRE-only build — skip tests
 CONFIGURE_ARGS="$CONFIGURE_ARGS
 --without-jtreg
