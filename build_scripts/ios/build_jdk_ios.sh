@@ -30,8 +30,7 @@ mkdir -p build/ios-arm64
 echo ">>> Running configure…"
 cd build/ios-arm64
 
-# We need to pass through env variables
-export CC CC CXX NUM_JOBS BOOT_JDK
+export CC CXX NUM_JOBS BOOT_JDK
 export CFLAGS="-target arm64-apple-ios14.0 -isysroot $(xcrun --sdk iphoneos --show-sdk-path)"
 export CXXFLAGS="$CFLAGS"
 export LDFLAGS="-target arm64-apple-ios14.0 -isysroot $(xcrun --sdk iphoneos --show-sdk-path)"
