@@ -46,13 +46,11 @@ CONFIGURE_ARGS="
 "
 
 # For static linking where possible
-CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-static-build"
+CONFIGURE_ARGS="$CONFIGURE_ARGS --enable-jvm-feature-static-build"
 
-# JRE-only build — skip demos, docs, sources, etc.
+# JRE-only build — skip tests
 CONFIGURE_ARGS="$CONFIGURE_ARGS
---disable-demos
---disable-docs
---skip-jtreg
+--without-jtreg
 --with-source-date=updated
 "
 
