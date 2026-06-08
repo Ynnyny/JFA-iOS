@@ -45,7 +45,8 @@ jobs:
             https://download.java.net/java/GA/jdk24/1f9ff9062db4449d8ca828c504ffae90/36/GPL/openjdk-24_macos-aarch64_bin.tar.gz
           tar -xzf boot-jdk/jdk.tar.gz -C boot-jdk
           # macOS JDK ships as .jdk bundle; find bin/java anywhere inside
-          BOOT_JDK_DIR=$(find boot-jdk -name "java" -type f -path "*/bin/java" 2>/dev/null | head -1 | xargs -I{} dirname {} | xargs -I{} dirname {})
+          BOOT_JDK_REL=$(find boot-jdk -name "java" -type f -path "*/bin/java" 2>/dev/null | head -1 | xargs -I{} dirname {} | xargs -I{} dirname {})
+          BOOT_JDK_DIR="$GITHUB_WORKSPACE/$BOOT_JDK_REL"
           echo "Found boot JDK at: $BOOT_JDK_DIR"
           echo "BOOT_JDK=$BOOT_JDK_DIR" >> $GITHUB_ENV
 
