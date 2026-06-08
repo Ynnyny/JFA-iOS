@@ -62,10 +62,13 @@ CONFIGURE_ARGS="$CONFIGURE_ARGS
 export DEVKIT_HOME="$(xcrun --sdk iphoneos --show-sdk-path)"
 export DEVKIT_ROOT="$DEVKIT_HOME"
 
-# We'll use the toolchain wrappers we set up
-export IOS_TOOLCHAIN_DIR
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export IOS_TOOLCHAIN_DIR="${IOS_TOOLCHAIN_DIR:-$(cd "$SCRIPT_DIR/../../toolchain" && pwd)}"
 export CC="${IOS_TOOLCHAIN_DIR}/bin/ios-arm64-clang"
 export CXX="${IOS_TOOLCHAIN_DIR}/bin/ios-arm64-clang++"
+
+# Ensure toolchain is on PATH
+export PATH="$IOS_TOOLCHAIN_DIR/bin:$PATH"
 
 echo "=== iOS Build Configuration ==="
 echo "BOOT_JDK:       $BOOT_JDK"
