@@ -38,14 +38,16 @@ jobs:
           chmod +x build_scripts/ios/*.sh
           chmod +x toolchain/bin/*
 
-      - name: Download boot JDK 24 (macOS x64)
+      - name: Download boot JDK 24 (macos-aarch64)
         run: |
           mkdir -p boot-jdk
           curl -L -o boot-jdk/jdk.tar.gz \
-            https://download.java.net/java/GA/jdk24/1f9ff9062db4449d8ca828c504ffae90/36/GPL/openjdk-24_macos-x64_bin.tar.gz
+            https://download.java.net/java/GA/jdk24/1f9ff9062db4449d8ca828c504ffae90/36/GPL/openjdk-24_macos-aarch64_bin.tar.gz
           tar -xzf boot-jdk/jdk.tar.gz -C boot-jdk
-          mv boot-jdk/jdk-24* boot-jdk/jdk-24
-          echo "BOOT_JDK=$PWD/boot-jdk/jdk-24" >> $GITHUB_ENV
+          # macOS JDK ships as .jdk bundle; find bin/java anywhere inside
+          BOOT_JDK_DIR=$(find boot-jdk -name "java" -type f -path "*/bin/java" 2>/dev/null | head -1 | xargs -I{} dirname {} | xargs -I{} dirname {})
+          echo "Found boot JDK at: $BOOT_JDK_DIR"
+          echo "BOOT_JDK=$BOOT_JDK_DIR" >> $GITHUB_ENV
 
       - name: Clone OpenJDK jdk25u source
         run: |
