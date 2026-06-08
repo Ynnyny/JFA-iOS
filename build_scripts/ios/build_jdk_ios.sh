@@ -14,6 +14,25 @@ cd "$SCRIPT_DIR/../../src_jdk25u"
 echo "=== Starting JDK 25 iOS build ==="
 
 # -----------------------------------------------------------
+# Patch platform.m4 to recognize iOS as a target OS
+# -----------------------------------------------------------
+echo ">>> Patching platform.m4 for iOS support…"
+bash "$SCRIPT_DIR/patch_platform_m4.sh" "make/autoconf/platform.m4"
+
+# Also patch generated-configure if it exists (pre-generated)
+for gen_conf in configure build/ios-arm64/configure-support/generated-configure.sh; do
+    if [ -f "$gen_conf" ]; then
+        if grep -q "unsupported operating system" "$gen_conf" 2>/dev/null; then
+            sed -i '' 's/\*)/\*ios\*)\
+      VAR_OS=macosx\
+      VAR_OS_TYPE=unix\
+      ;;\
+    &/' "$gen_conf" 2>/dev/null || true
+        fi
+    fi
+done
+
+# -----------------------------------------------------------
 # Generate configure
 # -----------------------------------------------------------
 echo ">>> Running configure (autogen)…"
