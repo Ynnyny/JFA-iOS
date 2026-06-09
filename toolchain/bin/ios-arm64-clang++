@@ -1,5 +1,13 @@
 #!/bin/bash
 # iOS arm64 clang++ wrapper — mimics procursus ios-arm64-clang++
+# Filter out -mmacosx-version-min=* which conflicts with iOS target
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    -mmacosx-version-min=*) ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
 exec xcrun --sdk iphoneos clang++ -target arm64-apple-ios14.0 \
     -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
-    -mios-version-min=14.0 "$@"
+    -mios-version-min=14.0 "${ARGS[@]}"
