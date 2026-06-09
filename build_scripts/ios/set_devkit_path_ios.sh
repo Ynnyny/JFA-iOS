@@ -43,7 +43,7 @@ CONFIGURE_ARGS="
 --with-freetype=bundled
   --enable-headless-only
   --disable-ccache
-  --with-cups=$(xcrun --sdk macosx --show-sdk-path)/usr/include
+  --with-cups=$(brew --prefix cups)/include
 "
 
 # Static build (required for iOS) + JRE-only build
