@@ -48,7 +48,6 @@ CONFIGURE_ARGS="
 
 # Static build (required for iOS) + JRE-only build
 CONFIGURE_ARGS="$CONFIGURE_ARGS
---with-jvm-features=static-build
 --without-jtreg
 --with-source-date=updated
 "
