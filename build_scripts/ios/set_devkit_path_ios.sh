@@ -43,7 +43,7 @@ CONFIGURE_ARGS="
 --with-freetype=bundled
   --enable-headless-only
   --disable-ccache
-  --with-cups=$(brew --prefix cups)/include
+  --with-cups=$(cd "$SCRIPT_DIR/../.." && pwd)/ios-missing-include
 "
 
 # Static build (required for iOS) + JRE-only build
