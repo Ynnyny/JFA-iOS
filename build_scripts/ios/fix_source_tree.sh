@@ -29,39 +29,89 @@ if [ -d "$MISSING_INCLUDE" ]; then
   cp -r "$MISSING_INCLUDE/"* ios-override/include/ 2>/dev/null || true
 fi
 
-# Create a compat sys/mman.h that ensures PROT_READ/PROT_WRITE/PROT_EXEC are defined
-# This is needed because the iOS SDK's <sys/mman.h> may not define them in the
-# same way as macOS, and some JDK code (even BUILDJDK) relies on them.
+# Create a compat sys/mman.h — iOS SDK provides a minimal version that lacks
+# MAP_NORESERVE, MAP_JIT, and some other macOS-specific constants used by HotSpot.
+# We shadow the SDK's version (via -I override) and add the missing ones.
 cat > ios-override/include/sys/mman.h << 'MMANEOF'
 #ifndef _IOS_OVERRIDE_SYS_MMAN_H
 #define _IOS_OVERRIDE_SYS_MMAN_H
-/* Full stub: iOS SDK has no sys/mman.h, provide POSIX constants */
-#include <sys/types.h>
-#include <TargetConditionals.h>
-#define PROT_READ       0x01
-#define PROT_WRITE      0x02
-#define PROT_EXEC       0x04
-#define PROT_NONE       0x00
-#define MAP_FILE        0x0000
-#define MAP_SHARED      0x0001
-#define MAP_PRIVATE     0x0002
-#define MAP_FIXED       0x0010
-#define MAP_ANON        0x1000
-#define MAP_ANONYMOUS   MAP_ANON
-#define MAP_FAILED      ((void *)-1)
-#include <stdint.h>
-static inline void *mmap(void *addr, size_t len, int prot, int flags, int fd, size_t off) {
-    return MAP_FAILED;
-}
-static inline int munmap(void *addr, size_t len) { return -1; }
-static inline int mprotect(void *addr, size_t len, int prot) { return -1; }
-static inline int msync(void *addr, size_t len, int flags) { return -1; }
-static inline int mlock(const void *addr, size_t len) { return -1; }
-static inline int munlock(const void *addr, size_t len) { return -1; }
-static inline int madvise(void *addr, size_t len, int advice) { return -1; }
-static inline int shm_open(const char *name, int oflag, mode_t mode) { return -1; }
-static inline int shm_unlink(const char *name) { return -1; }
+/* iOS sys/mman.h override: include the iOS SDK version first, then add
+   macOS/POSIX constants that iOS deliberately excludes. */
+#include <sys/appleapiopts.h>
+#include <sys/_types/_posix_vint.h>
+#include <sys/_mmap.h>
+/* Include the SDK's native mman.h if available (iOS 16+ SDK has a minimal one) */
+#ifdef __has_include_next
+#if __has_include_next(<sys/mman.h>)
+#include_next <sys/mman.h>
 #endif
+#endif
+/* POSIX basic protection flags (from sys/_types/_posix_vint.h) */
+#ifndef PROT_READ
+#define PROT_READ       0x01
+#endif
+#ifndef PROT_WRITE
+#define PROT_WRITE      0x02
+#endif
+#ifndef PROT_EXEC
+#define PROT_EXEC       0x04
+#endif
+#ifndef PROT_NONE
+#define PROT_NONE       0x00
+#endif
+/* MAP_* flags (macOS/BSD values) */
+#ifndef MAP_FILE
+#define MAP_FILE        0x0000
+#endif
+#ifndef MAP_SHARED
+#define MAP_SHARED      0x0001
+#endif
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE     0x0002
+#endif
+#ifndef MAP_FIXED
+#define MAP_FIXED       0x0010
+#endif
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE   0x40
+#endif
+#ifndef MAP_JIT
+#define MAP_JIT         0x0800
+#endif
+#ifndef MAP_ANON
+#define MAP_ANON        0x1000
+#endif
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS   MAP_ANON
+#endif
+#ifndef MAP_FAILED
+#define MAP_FAILED      ((void *)-1)
+#endif
+/* madvise() advice flags (BSD values) */
+#ifndef MADV_NORMAL
+#define MADV_NORMAL     0
+#endif
+#ifndef MADV_RANDOM
+#define MADV_RANDOM     1
+#endif
+#ifndef MADV_SEQUENTIAL
+#define MADV_SEQUENTIAL 2
+#endif
+#ifndef MADV_WILLNEED
+#define MADV_WILLNEED   3
+#endif
+#ifndef MADV_DONTNEED
+#define MADV_DONTNEED   4
+#endif
+#ifndef MADV_FREE
+#define MADV_FREE       5
+#endif
+/* mincore — not available on iOS, provide stub */
+static inline int mincore(void *addr, size_t len, unsigned char *vec) {
+    (void)addr; (void)len; (void)vec;
+    return -1;  /* ENOSYS */
+}
+#endif /* _IOS_OVERRIDE_SYS_MMAN_H */
 MMANEOF
 
 echo "  -> Created ios-override with missing headers"
@@ -143,48 +193,39 @@ fi
 
 # -----------------------------------------------------------
 # 2. Fix BUILDJDK linker flags for macOS host
-#    Apple clang masquerading as GCC (TOOLCHAIN_TYPE=gcc) gets
-#    -Wl,-soname which macOS ld doesn't support. Add a check for
-#    BUILD_OS=macosx to use -install_name instead.
+#    Apple clang masquerading as GCC gets -Wl,-soname which macOS
+#    ld doesn't support. Replace -soname with -install_name in the
+#    gcc toolchain section when built on macOS (first occurrence).
 # -----------------------------------------------------------
 echo ">>> Fixing BUILDJDK linker flags for macOS host..."
 CFLAGS_M4="make/autoconf/flags-cflags.m4"
 if [ -f "$CFLAGS_M4" ]; then
-  # Replace SET_SHARED_LIBRARY_NAME in the gcc section to handle macOS
   python3 << 'PYEOF'
-import sys
+# In the GCC section of flags-cflags.m4, replace -soname with a
+# macOS-aware version that checks if it's building on macOS
+import re
+
 with open('make/autoconf/flags-cflags.m4', 'r') as f:
     content = f.read()
 
-# Replace the gcc branch's soname line with a macOS-aware version
-# Looking for: SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
-# in the gcc section (first occurrence)
-old_line = "SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'"
-new_block = '''if test "x$OPENJDK_BUILD_OS" = xmacosx; then
+# The m4 file uses [$]1 to quote the $ in m4 macro arguments
+# The literal text in the file is: SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+# We need to replace the first occurrence (GCC branch) with a macOS check
+old = "SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'"
+new = '''if test "x$OPENJDK_BUILD_OS" = xmacosx; then
     SET_SHARED_LIBRARY_NAME='-Wl,-install_name,@rpath/[$]1'
   else
     SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
   fi'''
 
-# Only replace the first occurrence (gcc section, not clang else)
-count = content.count(old_line)
+count = content.count(old)
 if count > 0:
-    # Replace only first occurrence
-    content = content.replace(old_line, new_block, 1)
+    content = content.replace(old, new, 1)
     with open('make/autoconf/flags-cflags.m4', 'w') as f:
         f.write(content)
-    print(f'  -> Fixed gcc branch ({count} total, 1 replaced)')
+    print(f'  -> Patched gcc branch for macOS -soname (found {count})')
 else:
-    print('  -> -soname line not found, trying simpler pattern')
-    # Try with different escaping
-    old_line2 = "SET_SHARED_LIBRARY_NAME='-Wl,-soname=[\$]1'"
-    if old_line2 in content:
-        content = content.replace(old_line2, new_block, 1)
-        with open('make/autoconf/flags-cflags.m4', 'w') as f:
-            f.write(content)
-        print('  -> Fixed gcc branch (alt pattern)')
-    else:
-        print('  -> No -soname found')
+    print('  -> -soname pattern not found in flags-cflags.m4')
 PYEOF
 fi
 

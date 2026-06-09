@@ -7,7 +7,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/set_devkit_path_ios.sh"
+
+# Source devkit paths if not already configured (ci_build_arch_aarch64_ios.sh
+# calls this first, but standalone use may need it)
+if [ -z "${IOS_OVERRIDE_DIR:-}" ]; then
+  source "$SCRIPT_DIR/set_devkit_path_ios.sh"
+fi
 
 cd "$SCRIPT_DIR/../../src_jdk25u"
 

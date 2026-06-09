@@ -6,6 +6,16 @@ set -euo pipefail
 # Adapted from AngelAuraMC/angelauramc-openjdk-build eva/buildjre-17-21-25
 # ---------------------------------------------------------------------------
 
+# Set SCRIPT_DIR early (before any path checks)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# If already configured (e.g. sourced from ci_build_arch_aarch64_ios.sh
+# then again from build_jdk_ios.sh), skip re-configuration
+if [ -n "${IOS_OVERRIDE_DIR:-}" ]; then
+  echo "  -> Already configured: IOS_OVERRIDE_DIR=$IOS_OVERRIDE_DIR"
+  return 0 2>/dev/null || true
+fi
+
 export CONFIGURE_ARGS=""
 
 # Number of parallel jobs
@@ -24,12 +34,20 @@ export BUILD_OUTPUT_DIR="$BUILD_DIR_ABS"
 # Base configure arguments for iOS cross-compilation
 # -----------------------------------------------------------
 # Derive source tree root (either src_jdk25u or workspace root)
-if [ -d "$SCRIPT_DIR/../../src_jdk25u/ios-override/include" ]; then
-  IOS_OVERRIDE_DIR="$SCRIPT_DIR/../../src_jdk25u/ios-override/include"
-elif [ -d "$PWD/src_jdk25u/ios-override/include" ]; then
-  IOS_OVERRIDE_DIR="$PWD/src_jdk25u/ios-override/include"
-else
-  IOS_OVERRIDE_DIR=""
+IOS_OVERRIDE_DIR=""
+for candidate in \
+  "$SCRIPT_DIR/../../src_jdk25u/ios-override/include" \
+  "$PWD/src_jdk25u/ios-override/include" \
+  "$PWD/ios-override/include" \
+  "$SCRIPT_DIR/../../ios-override/include"; do
+  if [ -d "$candidate" ]; then
+    IOS_OVERRIDE_DIR="$candidate"
+    echo "  -> Found ios-override at: $IOS_OVERRIDE_DIR"
+    break
+  fi
+done
+if [ -z "$IOS_OVERRIDE_DIR" ]; then
+  echo "  -> Warning: ios-override not found (checked 4 candidates)"
 fi
 
 CONFIGURE_ARGS="
@@ -75,7 +93,6 @@ CONFIGURE_ARGS="$CONFIGURE_ARGS
 export DEVKIT_HOME="$(xcrun --sdk iphoneos --show-sdk-path)"
 export DEVKIT_ROOT="$DEVKIT_HOME"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export IOS_TOOLCHAIN_DIR="${IOS_TOOLCHAIN_DIR:-$(cd "$SCRIPT_DIR/../../toolchain" && pwd)}"
 export CC="${IOS_TOOLCHAIN_DIR}/bin/ios-arm64-clang"
 export CXX="${IOS_TOOLCHAIN_DIR}/bin/ios-arm64-clang++"
