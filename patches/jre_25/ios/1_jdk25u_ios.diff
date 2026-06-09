@@ -1,0 +1,749 @@
+diff --git a/make/autoconf/buildjdk-spec.gmk.in b/make/autoconf/buildjdk-spec.gmk.in
+index 524f35f41..2fe2c57dc 100644
+--- a/make/autoconf/buildjdk-spec.gmk.in
++++ b/make/autoconf/buildjdk-spec.gmk.in
+@@ -103,3 +103,6 @@ override EXTRA_LDFLAGS :=
+ # hsdis is not needed
+ HSDIS_BACKEND := none
+ ENABLE_HSDIS_BUNDLING := false
++
++# Add a check to determine whether to insert -mmacosx-version-min
++JVM_BUILDJDK := true
+diff --git a/make/autoconf/flags-cflags.m4 b/make/autoconf/flags-cflags.m4
+index 1fdd0143a..15e62216d 100644
+--- a/make/autoconf/flags-cflags.m4
++++ b/make/autoconf/flags-cflags.m4
+@@ -579,7 +579,7 @@ AC_DEFUN([FLAGS_SETUP_CFLAGS_HELPER],
+   # Set some additional per-OS defines.
+
+   # Additional macosx handling
+-  if test "x$OPENJDK_TARGET_OS" = xmacosx; then
++  if test "x$OPENJDK_TARGET_OS" = xmacosx && "$JVM_BUILDJDK" = true; then
+     OS_CFLAGS="-DMAC_OS_X_VERSION_MIN_REQUIRED=$MACOSX_VERSION_MIN_NODOTS \
+         -mmacosx-version-min=$MACOSX_VERSION_MIN"
+
+diff --git a/make/autoconf/flags-ldflags.m4 b/make/autoconf/flags-ldflags.m4
+index 2aca285d3..50a20c1f3 100644
+--- a/make/autoconf/flags-ldflags.m4
++++ b/make/autoconf/flags-ldflags.m4
+@@ -95,10 +95,10 @@ AC_DEFUN([FLAGS_SETUP_LDFLAGS_HELPER],
+   fi
+
+   # Setup OS-dependent LDFLAGS
+-  if test "x$OPENJDK_TARGET_OS" = xmacosx && test "x$TOOLCHAIN_TYPE" = xclang; then
++  if test "x$OPENJDK_TARGET_OS" = xmacosx && test "x$TOOLCHAIN_TYPE" = xclang && test "$JVM_BUILDJDK" = true; then
+     # FIXME: We should really generalize SET_SHARED_LIBRARY_ORIGIN instead.
+     OS_LDFLAGS_JVM_ONLY="-Wl,-rpath,@loader_path/. -Wl,-rpath,@loader_path/.."
+-    OS_LDFLAGS="-mmacosx-version-min=$MACOSX_VERSION_MIN"
++    #OS_LDFLAGS="-mmacosx-version-min=$MACOSX_VERSION_MIN"
+   fi
+
+   # Setup debug level-dependent LDFLAGS
+diff --git a/make/autoconf/flags-other.m4 b/make/autoconf/flags-other.m4
+index 8062a3260..4c34c40ea 100644
+--- a/make/autoconf/flags-other.m4
++++ b/make/autoconf/flags-other.m4
+@@ -105,9 +105,11 @@ AC_DEFUN([FLAGS_SETUP_ASFLAGS],
+
+     # Fix linker warning.
+     # Code taken from make/autoconf/flags-cflags.m4 and adapted.
++    if test "$JVM_BUILDJDK" = true; then
+     JVM_BASIC_ASFLAGS="$JVM_BASIC_ASFLAGS \
+         -DMAC_OS_X_VERSION_MIN_REQUIRED=$MACOSX_VERSION_MIN_NODOTS \
+         -mmacosx-version-min=$MACOSX_VERSION_MIN"
++    fi
+
+     if test -n "$MACOSX_VERSION_MAX"; then
+         JVM_BASIC_ASFLAGS="$JVM_BASIC_ASFLAGS $OS_CFLAGS \
+diff --git a/make/autoconf/platform.m4 b/make/autoconf/platform.m4
+index babb24a9b..7b770f0e3 100644
+--- a/make/autoconf/platform.m4
++++ b/make/autoconf/platform.m4
+@@ -206,6 +206,10 @@ AC_DEFUN([PLATFORM_EXTRACT_VARS_FROM_OS],
+       VAR_OS=macosx
+       VAR_OS_TYPE=unix
+       ;;
++    *ios*)
++      VAR_OS=macosx
++      VAR_OS_TYPE=unix
++      ;;
+     *bsd*)
+       VAR_OS=bsd
+       VAR_OS_TYPE=unix
+diff --git a/make/common/MakeBase.gmk b/make/common/MakeBase.gmk
+index 252d9dd50..d3f0299a9 100644
+--- a/make/common/MakeBase.gmk
++++ b/make/common/MakeBase.gmk
+@@ -75,7 +75,6 @@ ifeq (4.0, $(firstword $(sort 4.0 $(MAKE_VERSION))))
+   RWILDCARD_WORKS := true
+ endif
+
+
+-
+ # For convenience, MakeBase.gmk continues to include these separate files, at
+ # least for now.
+
+diff --git a/make/common/modules/LauncherCommon.gmk b/make/common/modules/LauncherCommon.gmk
+index 5c13478cc..823f29ace 100644
+--- a/make/common/modules/LauncherCommon.gmk
++++ b/make/common/modules/LauncherCommon.gmk
+@@ -176,8 +176,7 @@ define SetupBuildLauncherBody
+       LDFLAGS_aix := -L$(SUPPORT_OUTPUTDIR)/native/java.base, \
+       LIBS := $(JDKEXE_LIBS) $$($1_LIBS), \
+       LIBS_linux := -ljli -lpthread $(LIBDL), \
+-      LIBS_macosx := -ljli -framework Cocoa -framework Security \
+-          -framework ApplicationServices, \
++      LIBS_macosx := -ljli -framework Foundation -framework Security, \
+       LIBS_aix := -ljli_static, \
+       LIBS_windows := $$($1_WINDOWS_JLI_LIB) \
+           $(SUPPORT_OUTPUTDIR)/native/java.base/libjava/java.lib, \
+diff --git a/make/modules/java.base/Lib.gmk b/make/modules/java.base/Lib.gmk
+index 3b7825772..9082367bb 100644
+--- a/make/modules/java.base/Lib.gmk
++++ b/make/modules/java.base/Lib.gmk
+@@ -58,7 +58,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBNET, \
+     LIBS_aix := $(LIBDL),\
+     LIBS_windows := ws2_32.lib jvm.lib secur32.lib iphlpapi.lib winhttp.lib \
+         delayimp.lib $(WIN_JAVA_LIB) advapi32.lib, \
+-    LIBS_macosx := -framework CoreFoundation -framework CoreServices, \
++    LIBS_macosx := -framework CoreFoundation -framework CoreServices -framework CFNetwork, \
+ ))
+
+ $(BUILD_LIBNET): $(BUILD_LIBJAVA)
+@@ -96,7 +96,7 @@ $(BUILD_LIBNIO): $(BUILD_LIBNET)
+ ################################################################################
+ # Create the macosx security library
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+
+     $(eval $(call SetupJdkLibrary, BUILD_LIBOSXSECURITY, \
+         NAME := osxsecurity, \
+diff --git a/make/modules/java.base/lib/CoreLibraries.gmk b/make/modules/java.base/lib/CoreLibraries.gmk
+index 186eff3d6..9595778a4 100644
+--- a/make/modules/java.base/lib/CoreLibraries.gmk
++++ b/make/modules/java.base/lib/CoreLibraries.gmk
+@@ -218,7 +218,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBJLI, \
+     LIBS_unix := $(LIBZ_LIBS), \
+     LIBS_linux := $(LIBDL) -lpthread, \
+     LIBS_aix := $(LIBDL),\
+-    LIBS_macosx := -framework Cocoa -framework Security -framework ApplicationServices, \
++    LIBS_macosx := -framework Foundation -framework Security, \
+     LIBS_windows := advapi32.lib comctl32.lib user32.lib, \
+ ))
+
+diff --git a/make/modules/java.desktop/Gensrc.gmk b/make/modules/java.desktop/Gensrc.gmk
+index f76091079..40211077d 100644
+--- a/make/modules/java.desktop/Gensrc.gmk
++++ b/make/modules/java.desktop/Gensrc.gmk
+@@ -32,7 +32,7 @@ ifeq ($(call isTargetOs, windows), false)
+   include gensrc/GensrcIcons.gmk
+ endif
+
+-ifeq ($(call isTargetOs, linux aix), true)
++ifeq ($(call isTargetOs, linux macosx aix), true)
+   include gensrc/GensrcX11Wrappers.gmk
+ endif
+
+@@ -52,7 +52,7 @@ PROP_SRC_DIRS := \
+     $(TOPDIR)/src/java.desktop/share/classes/sun/print/resources \
+     #
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+   PROP_SRC_DIRS += \
+       $(TOPDIR)/src/java.desktop/macosx/classes/com/apple/laf/resources \
+       $(TOPDIR)/src/java.desktop/macosx/classes/sun/awt/resources \
+diff --git a/make/modules/java.desktop/Java.gmk b/make/modules/java.desktop/Java.gmk
+index 108ee925e..39ca22769 100644
+--- a/make/modules/java.desktop/Java.gmk
++++ b/make/modules/java.desktop/Java.gmk
+@@ -65,7 +65,7 @@ EXCLUDE_FILES += \
+     .template \
+     #
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+   # exclude all X11 on Mac.
+   EXCLUDES += \
+       sun/awt/screencast \
+@@ -81,6 +81,12 @@ ifeq ($(call isTargetOs, macosx), true)
+       $(wildcard $(TOPDIR)/src/java.desktop/unix/classes/sun/font/*.java) \
+       #
+ else
++  # exclude some strange files that did not compile due to missing classes
++  EXCLUDE_FILES += \
++      $(TOPDIR)/src/java.desktop/unix/classes/sun/font/X11GB2312.java \
++      $(TOPDIR)/src/java.desktop/unix/classes/sun/font/X11GBK.java \
++      $(TOPDIR)/src/java.desktop/unix/classes/sun/font/X11KSC5601.java \
++      #
+   # TBD: figure out how to eliminate this long list
+   EXCLUDE_FILES += \
+       sun/awt/X11/ScreenFormat.java \
+@@ -131,7 +137,7 @@ ifeq ($(call isTargetOs, windows), true)
+   EXCLUDES += com/sun/java/swing/plaf/gtk
+ endif
+
+-ifeq ($(call isTargetOs, windows macosx), false)
++ifeq ($(call isTargetOs, windows macosx_NOTIOS), false)
+   EXCLUDE_FILES += sun/awt/AWTCharset.java
+ endif
+
+diff --git a/make/modules/java.desktop/Lib.gmk b/make/modules/java.desktop/Lib.gmk
+index be1ac3f1f..3a114e48f 100644
+--- a/make/modules/java.desktop/Lib.gmk
++++ b/make/modules/java.desktop/Lib.gmk
+@@ -69,7 +69,7 @@ ifeq ($(call isTargetOs, aix), false)
+       LIBS_unix := -ljava -ljvm, \
+       LIBS_linux := $(ALSA_LIBS), \
+       LIBS_macosx := -framework CoreAudio -framework CoreFoundation \
+-          -framework CoreServices -framework AudioUnit \
++          -framework CoreServices -framework AVFoundation \
+           -framework CoreMIDI -framework AudioToolbox $(LIBCXX), \
+       LIBS_windows := $(WIN_JAVA_LIB) advapi32.lib dsound.lib winmm.lib user32.lib ole32.lib, \
+   ))
+@@ -83,7 +83,7 @@ endif
+ ################################################################################
+ # Create the macosx specific osxapp and osx libraries
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+
+   $(eval $(call SetupJdkLibrary, BUILD_LIBOSXAPP, \
+       NAME := osxapp, \
+diff --git a/make/modules/java.desktop/gensrc/GensrcIcons.gmk b/make/modules/java.desktop/gensrc/GensrcIcons.gmk
+index 28434d3f4..920a30faa 100644
+--- a/make/modules/java.desktop/gensrc/GensrcIcons.gmk
++++ b/make/modules/java.desktop/gensrc/GensrcIcons.gmk
+@@ -106,7 +106,7 @@ TARGETS += $(GENSRC_AWT_ICONS)
+
+ ################################################################################
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+
+   GENSRC_OSX_ICONS_DST := $(SUPPORT_OUTPUTDIR)/headers/java.desktop
+   GENSRC_OSX_ICONS := $(GENSRC_OSX_ICONS_DST)/AWTIconData.h
+diff --git a/make/modules/java.desktop/lib/Awt2dLibraries.gmk b/make/modules/java.desktop/lib/Awt2dLibraries.gmk
+index 96576bb8d..170e3801d 100644
+--- a/make/modules/java.desktop/lib/Awt2dLibraries.gmk
++++ b/make/modules/java.desktop/lib/Awt2dLibraries.gmk
+@@ -81,7 +81,7 @@ ifeq ($(call isTargetOs, linux macosx aix), true)
+   LIBAWT_EXFILES += awt_Font.c CUPSfuncs.c fontpath.c X11Color.c
+ endif
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+   LIBAWT_EXFILES += initIDs.c awt/image/cvutils/img_colors.c
+ endif
+
+@@ -166,7 +166,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBAWT, \
+     LIBS_unix := -ljvm -ljava $(LIBM), \
+     LIBS_linux :=  $(LIBDL), \
+     LIBS_aix := $(LIBDL),\
+-    LIBS_macosx := -lmlib_image \
++    LIBS_macosx_NOTIOS := -lmlib_image \
+         -framework Cocoa \
+         -framework OpenGL \
+         -framework Metal \
+@@ -358,7 +358,7 @@ TARGETS += $(BUILD_LIBJAVAJPEG)
+ ################################################################################
+
+ # Mac and Windows only use the native AWT lib, do not build libawt_headless
+-ifeq ($(call isTargetOs, windows macosx), false)
++ifeq ($(call isTargetOs, windows macosx_NOTIOS), false)
+
+   LIBAWT_HEADLESS_EXTRA_SRC := \
+       common/font \
+@@ -500,7 +500,7 @@ ifeq ($(call isTargetOs, windows), true)
+   LIBFONTMANAGER_EXCLUDE_FILES += X11FontScaler.c \
+       X11TextRenderer.c
+   LIBFONTMANAGER_OPTIMIZATION := HIGHEST
+-else ifeq ($(call isTargetOs, macosx), true)
++else ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+   LIBFONTMANAGER_EXCLUDE_FILES += X11FontScaler.c \
+       X11TextRenderer.c \
+       fontpath.c \
+@@ -539,7 +539,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBFONTMANAGER, \
+     LDFLAGS_aix := -Wl$(COMMA)-berok, \
+     LIBS := $(BUILD_LIBFONTMANAGER_FONTLIB), \
+     LIBS_unix := -lawt -ljava -ljvm $(LIBM) $(LIBCXX), \
+-    LIBS_macosx := -lawt_lwawt -framework CoreText -framework CoreFoundation -framework CoreGraphics, \
++    LIBS_macosx := -lawt_headless -framework CoreText -framework CoreFoundation -framework CoreGraphics, \
+     LIBS_windows := $(WIN_JAVA_LIB) advapi32.lib user32.lib gdi32.lib \
+         $(WIN_AWT_LIB), \
+ ))
+@@ -547,7 +547,8 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBFONTMANAGER, \
+ $(BUILD_LIBFONTMANAGER): $(BUILD_LIBAWT)
+
+ ifeq ($(call isTargetOs, macosx), true)
+-  $(BUILD_LIBFONTMANAGER): $(call FindLib, $(MODULE), awt_lwawt)
++  $(BUILD_LIBFONTMANAGER): $(call FindLib, $(MODULE), awt_headless)
++  # awt_lwawt
+ endif
+
+ ifeq ($(FREETYPE_TO_USE), bundled)
+@@ -602,10 +603,11 @@ else # not windows
+
+   ifeq ($(call isTargetOs, macosx), true)
+     # libjawt on macosx do not use the unix code
+-    LIBJAWT_EXCLUDE_SRC_PATTERNS := /unix/
++    # libjawt on iOS do not use the macosx code
++    LIBJAWT_EXCLUDE_SRC_PATTERNS := /macosx/
+   endif
+
+-  ifeq ($(call isTargetOs, macosx), true)
++  ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+     JAWT_LIBS := -lawt_lwawt
+   else
+     JAWT_LIBS := -lawt
+@@ -613,7 +615,7 @@ else # not windows
+       JAWT_LIBS += -lawt_xawt
+     else
+       JAWT_LIBS += -lawt_headless
+-      ifeq ($(call isTargetOs, linux), true)
++      ifeq ($(call isTargetOs, linux macosx), true)
+         JAWT_CFLAGS += -DHEADLESS
+       endif
+     endif
+@@ -635,7 +637,7 @@ else # not windows
+       LDFLAGS_unix := -L$(INSTALL_LIBRARIES_HERE), \
+       LDFLAGS_macosx := -Wl$(COMMA)-rpath$(COMMA)@loader_path, \
+       LIBS_unix := $(JAWT_LIBS) $(JDKLIB_LIBS), \
+-      LIBS_macosx := -framework Cocoa, \
++      LIBS_macosx_NOTIOS := -framework Cocoa, \
+   ))
+
+   ifeq ($(ENABLE_HEADLESS_ONLY), false)
+@@ -644,7 +646,7 @@ else # not windows
+     $(BUILD_LIBJAWT): $(call FindLib, $(MODULE), awt_headless)
+   endif
+
+-  ifeq ($(call isTargetOs, macosx), true)
++  ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+    $(BUILD_LIBJAWT): $(call FindLib, $(MODULE), awt_lwawt)
+   endif
+
+@@ -787,7 +789,7 @@ endif
+
+ ################################################################################
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+
+   LIBAWT_LWAWT_EXTRA_SRC := \
+       $(TOPDIR)/src/$(MODULE)/unix/native/common/awt \
+@@ -880,7 +882,7 @@ else
+     MACOSX_METAL_VERSION_MIN=10.14.0
+ endif
+
+-ifeq ($(call isTargetOs, macosx), true)
++ifeq ($(call isTargetOs, macosx_NOTIOS), true)
+   SHADERS_SRC := $(TOPDIR)/src/java.desktop/macosx/native/libawt_lwawt/java2d/metal/shaders.metal
+   SHADERS_SUPPORT_DIR := $(SUPPORT_OUTPUTDIR)/native/java.desktop/libosxui
+   SHADERS_AIR := $(SHADERS_SUPPORT_DIR)/shaders.air
+diff --git a/make/modules/java.instrument/Lib.gmk b/make/modules/java.instrument/Lib.gmk
+index ae985b315..3c2f29ab5 100644
+--- a/make/modules/java.instrument/Lib.gmk
++++ b/make/modules/java.instrument/Lib.gmk
+@@ -50,8 +50,7 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBINSTRUMENT, \
+     LIBS_unix := -ljava -ljvm $(LIBZ_LIBS), \
+     LIBS_linux := -ljli $(LIBDL), \
+     LIBS_aix := -liconv -ljli_static $(LIBDL), \
+-    LIBS_macosx := -ljli -liconv -framework Cocoa -framework Security \
+-        -framework ApplicationServices, \
++    LIBS_macosx := -ljli -liconv -framework Foundation -framework Security, \
+     LIBS_windows := jvm.lib $(WIN_JAVA_LIB) advapi32.lib \
+         $(WINDOWS_JLI_LIB), \
+ ))
+diff --git a/make/modules/java.security.jgss/Lib.gmk b/make/modules/java.security.jgss/Lib.gmk
+index d9f6114be..a90a0cba5 100644
+--- a/make/modules/java.security.jgss/Lib.gmk
++++ b/make/modules/java.security.jgss/Lib.gmk
+@@ -72,7 +72,8 @@ ifneq ($(BUILD_CRYPTO), false)
+     TARGETS += $(BUILD_LIBW2K_LSA_AUTH)
+   endif
+
+-  ifeq ($(call isTargetOs, macosx), true)
++  #ifeq ($(call isTargetOs, macosx), true)
++  ifeq (false, true)
+     # libosxkrb5 needs to call deprecated krb5 APIs so that java
+     # can use the native credentials cache.
+     $(eval $(call SetupJdkLibrary, BUILD_LIBOSXKRB5, \
+diff --git a/make/modules/jdk.hotspot.agent/Gensrc.gmk b/make/modules/jdk.hotspot.agent/Gensrc.gmk
+index b2bd016a5..3e78ab9af 100644
+--- a/make/modules/jdk.hotspot.agent/Gensrc.gmk
++++ b/make/modules/jdk.hotspot.agent/Gensrc.gmk
+@@ -46,11 +46,12 @@ ifeq ($(call isTargetOs, macosx), true)
+     MIG_SYSROOT_FLAGS := -isysroot $(SYSROOT)
+   endif
+
+-  $(MACH_EXC_SERVER): $(SYSROOT)/usr/include/mach/mach_exc.defs
++  $(MACH_EXC_SERVER): ${themacsysroot}/usr/include/mach/mach_exc.defs
+   $(call MakeTargetDir)
+   $(MIG) $(MIG_SYSROOT_FLAGS) \
++            -isysroot ${themacsysroot} \
+       -server $@ -user $(MACH_EXC_USER) \
+-      -header $(MACH_EXC_HEADER) $(SYSROOT)/usr/include/mach/mach_exc.defs
++      -header $(MACH_EXC_HEADER) ${themacsysroot}/usr/include/mach/mach_exc.defs
+
+   TARGETS += $(MACH_EXC_SERVER)
+ endif
+diff --git a/make/modules/jdk.hotspot.agent/Lib.gmk b/make/modules/jdk.hotspot.agent/Lib.gmk
+index 478d199e5..7b1fc5f68 100644
+--- a/make/modules/jdk.hotspot.agent/Lib.gmk
++++ b/make/modules/jdk.hotspot.agent/Lib.gmk
+@@ -76,6 +76,6 @@ $(eval $(call SetupJdkLibrary, BUILD_LIBSA, \
+     LIBS_windows := dbgeng.lib $(WIN_JAVA_LIB), \
+ ))
+
+-TARGETS += $(BUILD_LIBSA)
++#TARGETS += $(BUILD_LIBSA)
+
+ ################################################################################
+diff --git a/make/modules/jdk.jpackage/Lib.gmk b/make/modules/jdk.jpackage/Lib.gmk
+index 8cce38fe0..0380c104e 100644
+--- a/make/modules/jdk.jpackage/Lib.gmk
++++ b/make/modules/jdk.jpackage/Lib.gmk
+@@ -73,7 +73,7 @@ $(eval $(call SetupJdkExecutable, BUILD_JPACKAGE_APPLAUNCHEREXE, \
+     CXXFLAGS_windows := $(JPACKAGE_CXXFLAGS_windows), \
+     CFLAGS_windows := $(JPACKAGE_CFLAGS_windows), \
+     LDFLAGS := $(LDFLAGS_JDKEXE), \
+-    LIBS_macosx := $(LIBCXX) -framework Cocoa  -rpath @executable_path/../Frameworks/ -rpath @executable_path/../PlugIns/, \
++    LIBS_macosx := $(LIBCXX) -framework Foundation  -rpath @executable_path/../Frameworks/ -rpath @executable_path/../PlugIns/, \
+     LIBS_windows := $(LIBCXX) user32.lib ole32.lib msi.lib shlwapi.lib \
+         Shell32.lib, \
+     LIBS_linux := -ldl, \
+diff --git a/src/hotspot/os/bsd/gc/x/xPhysicalMemoryBacking_bsd.cpp b/src/hotspot/os/bsd/gc/x/xPhysicalMemoryBacking_bsd.cpp
+index ea9a54bcb..2edbdb89b 100644
+--- a/src/hotspot/os/bsd/gc/x/xPhysicalMemoryBacking_bsd.cpp
++++ b/src/hotspot/os/bsd/gc/z/zPhysicalMemoryBacking_bsd.cpp
+@@ -34,8 +34,23 @@
+ #include "utilities/align.hpp"
+ #include "utilities/debug.hpp"
+
++#include <TargetConditionals.h>
+ #include <mach/mach.h>
++#if TARGET_OS_IPHONE
++extern "C" kern_return_t mach_vm_remap(vm_map_t target_task,
++                                   mach_vm_address_t *target_address,
++                                   mach_vm_size_t size,
++                                   mach_vm_offset_t mask,
++                                   int flags,
++                                   vm_map_t src_task,
++                                   mach_vm_address_t src_address,
++                                   boolean_t copy,
++                                   vm_prot_t *cur_protection,
++                                   vm_prot_t *max_protection,
++                                   vm_inherit_t inheritance);
++#else
+ #include <mach/mach_vm.h>
++#endif
+ #include <sys/mman.h>
+ #include <sys/types.h>
+
+diff --git a/src/hotspot/os/bsd/gc/z/zPhysicalMemoryBacking_bsd.cpp b/src/hotspot/os/bsd/gc/z/zPhysicalMemoryBacking_bsd.cpp
+index ea9a54bcb..2edbdb89b 100644
+--- a/src/hotspot/os/bsd/gc/z/zPhysicalMemoryBacking_bsd.cpp
++++ b/src/hotspot/os/bsd/gc/z/zPhysicalMemoryBacking_bsd.cpp
+@@ -34,8 +34,23 @@
+ #include "utilities/align.hpp"
+ #include "utilities/debug.hpp"
+
++#include <TargetConditionals.h>
+ #include <mach/mach.h>
++#if TARGET_OS_IPHONE
++extern "C" kern_return_t mach_vm_remap(vm_map_t target_task,
++                                   mach_vm_address_t *target_address,
++                                   mach_vm_size_t size,
++                                   mach_vm_offset_t mask,
++                                   int flags,
++                                   vm_map_t src_task,
++                                   mach_vm_address_t src_address,
++                                   boolean_t copy,
++                                   vm_prot_t *cur_protection,
++                                   vm_prot_t *max_protection,
++                                   vm_inherit_t inheritance);
++#else
+ #include <mach/mach_vm.h>
++#endif
+ #include <sys/mman.h>
+ #include <sys/types.h>
+
+diff --git a/src/hotspot/os/bsd/os_bsd.cpp b/src/hotspot/os/bsd/os_bsd.cpp
+index 144ca8213..05771bc9b 100644
+--- a/src/hotspot/os/bsd/os_bsd.cpp
++++ b/src/hotspot/os/bsd/os_bsd.cpp
+@@ -757,6 +757,26 @@ void os::Bsd::clock_init() {
+
+
+
++#ifdef __APPLE__
++static bool rwxChecked, rwxAvailable;
++#endif
++bool os::Bsd::isRWXJITAvailable() {
++#ifdef __APPLE__
++  if (!rwxChecked) {
++    rwxChecked = true;
++    const int flags = MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS | MAP_JIT;
++    char* addr = (char*)::mmap(0, getpagesize(), PROT_NONE, flags, -1, 0);
++    rwxAvailable = addr != MAP_FAILED;
++    if (rwxAvailable) {
++      ::munmap(addr, getpagesize());
++    }
++  }
++  return rwxAvailable;
++#else
++  return true;
++#endif
++}
++
+ #ifdef __APPLE__
+
+ jlong os::javaTimeNanos() {
+@@ -1508,7 +1528,7 @@ static void warn_fail_commit_memory(char* addr, size_t size, bool exec,
+ //       left at the time of mmap(). This could be a potential
+ //       problem.
+ bool os::pd_commit_memory(char* addr, size_t size, bool exec) {
+-  int prot = exec ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
++  int prot = exec&&os::Bsd::isRWXJITAvailable() ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
+ #if defined(__OpenBSD__)
+   // XXX: Work-around mmap/MAP_FIXED bug temporarily on OpenBSD
+   Events::log_memprotect(nullptr, "Protecting memory [" INTPTR_FORMAT "," INTPTR_FORMAT "] with protection modes %x", p2i(addr), p2i(addr+size), prot);
+@@ -1649,7 +1669,7 @@ bool os::remove_stack_guard_pages(char* addr, size_t size) {
+ static char* anon_mmap(char* requested_addr, size_t bytes, bool exec) {
+   // MAP_FIXED is intentionally left out, to leave existing mappings intact.
+   const int flags = MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS
+-      MACOS_ONLY(| (exec ? MAP_JIT : 0));
++      MACOS_ONLY(| (exec && os::Bsd::isRWXJITAvailable() ? MAP_JIT : 0));
+
+   // Map reserved/uncommitted pages PROT_NONE so we fail early if we
+   // touch an uncommitted page. Otherwise, the read/write might
+diff --git a/src/hotspot/os/bsd/os_bsd.hpp b/src/hotspot/os/bsd/os_bsd.hpp
+index 87f4b6958..471d4dc82 100644
+--- a/src/hotspot/os/bsd/os_bsd.hpp
++++ b/src/hotspot/os/bsd/os_bsd.hpp
+@@ -56,6 +56,7 @@ class os::Bsd {
+
+  public:
+
++  static bool isRWXJITAvailable();
+   static void init_thread_fpu_state();
+   static pthread_t main_thread(void)                                { return _main_thread; }
+
+diff --git a/src/hotspot/os/posix/signals_posix.cpp b/src/hotspot/os/posix/signals_posix.cpp
+index 285e69ba1..8f34df3bb 100644
+--- a/src/hotspot/os/posix/signals_posix.cpp
++++ b/src/hotspot/os/posix/signals_posix.cpp
+@@ -45,8 +45,10 @@
+ #include "utilities/events.hpp"
+ #include "utilities/ostream.hpp"
+ #include "utilities/vmError.hpp"
++#include "os_bsd.hpp"
+
+ #include <signal.h>
++#include <sys/mman.h>
+
+
+ static const char* get_signal_name(int sig, char* out, size_t outlen);
+@@ -574,6 +574,26 @@ int JVM_HANDLE_XXX_SIGNAL(int sig, siginfo_t* info,
+   ucontext_t* const uc = (ucontext_t*) ucVoid;
+   Thread* const t = Thread::current_or_null_safe();
+
++  // Hopefully placing W^X handing here is safe enough, maybe check repeat?
++  if (!os::Bsd::isRWXJITAvailable() && sig == SIGBUS) {
++    address pc = (address) os::Posix::ucontext_get_pc(uc);
++    //static address last_pc, last_si_addr;
++    if (pc == info->si_addr) { //(pc >= CodeCache::low_bound() && pc < CodeCache::high_bound()) {
++    //(CodeCache::contains(pc) || thread->thread_state() == _thread_in_Java) {
++        //if (last_pc != pc) {
++        //   last_pc = pc;
++           bool handled = !mprotect((address) ((uintptr_t)pc & -PAGE_SIZE), PAGE_SIZE, PROT_READ | PROT_EXEC);
++           if (handled) return true;
++        //}
++    } else if (info->si_addr >= CodeCache::low_bound() && info->si_addr < CodeCache::high_bound()) {
++      //(CodeCache::contains(info->si_addr)) { // && last_si_addr != info->si_addr) {
++      //last_si_addr = (address) info->si_addr;
++      bool handled = !mprotect((address) ((uintptr_t)info->si_addr & -PAGE_SIZE), PAGE_SIZE, PROT_READ | PROT_WRITE);
++      if (handled) return true;
++    }
++  }
++
++
+   // Handle JFR thread crash protection.
+   //  Note: this may cause us to longjmp away. Do not use any code before this
+   //  point which really needs any form of epilogue code running, eg RAII objects.
+diff --git a/src/hotspot/os_cpu/bsd_aarch64/icache_bsd_aarch64.hpp b/src/hotspot/os_cpu/bsd_aarch64/icache_bsd_aarch64.hpp
+index 7e9ca43ef..9374ac999 100644
+--- a/src/hotspot/os_cpu/bsd_aarch64/icache_bsd_aarch64.hpp
++++ b/src/hotspot/os_cpu/bsd_aarch64/icache_bsd_aarch64.hpp
+@@ -27,6 +27,8 @@
+ #ifndef OS_CPU_BSD_AARCH64_ICACHE_AARCH64_HPP
+ #define OS_CPU_BSD_AARCH64_ICACHE_AARCH64_HPP
+
++#include <libkern/OSCacheControl.h>
++
+ // Interface for updating the instruction cache.  Whenever the VM
+ // modifies code, part of the processor instruction cache potentially
+ // has to be flushed.
+@@ -34,11 +36,14 @@
+ class ICache : public AbstractICache {
+  public:
+   static void initialize();
++  static void __clear_cache_(void *start, void *end) {
++    sys_icache_invalidate(start, (char *)end-(char *)start);
++  }
+   static void invalidate_word(address addr) {
+-    __clear_cache((char *)addr, (char *)(addr + 4));
++    __clear_cache_((char *)addr, (char *)(addr + 4));
+   }
+   static void invalidate_range(address start, int nbytes) {
+-    __clear_cache((char *)start, (char *)(start + nbytes));
++    __clear_cache_((char *)start, (char *)(start + nbytes));
+   }
+ };
+
+diff --git a/src/hotspot/os_cpu/bsd_aarch64/os_bsd_aarch64.cpp b/src/hotspot/os_cpu/bsd_aarch64/os_bsd_aarch64.cpp
+index 97c42e2a6..f5f2f85f3 100644
+--- a/src/hotspot/os_cpu/bsd_aarch64/os_bsd_aarch64.cpp
++++ b/src/hotspot/os_cpu/bsd_aarch64/os_bsd_aarch64.cpp
+@@ -55,6 +55,7 @@
+ #include "utilities/align.hpp"
+ #include "utilities/events.hpp"
+ #include "utilities/vmError.hpp"
++#include "tcg-apple-jit.h"
+
+ // put OS-includes here
+ # include <sys/types.h>
+@@ -543,7 +544,9 @@ int os::extra_bang_size_in_bytes() {
+ }
+
+ void os::current_thread_enable_wx(WXMode mode) {
+-  pthread_jit_write_protect_np(mode == WXExec);
++  if (os::Bsd::isRWXJITAvailable()) {
++    jit_write_protect(mode == WXExec);
++  }
+ }
+
+ static inline void atomic_copy64(const volatile void *src, volatile void *dst) {
+diff --git a/src/hotspot/os_cpu/bsd_aarch64/tcg-apple-jit.h b/src/hotspot/os_cpu/bsd_aarch64/tcg-apple-jit.h
+new file mode 100644
+index 000000000..e8227412b
+--- /dev/null
++++ b/src/hotspot/os_cpu/bsd_aarch64/tcg-apple-jit.h
+@@ -0,0 +1,85 @@
++/*
++ * Apple Silicon APRR functions for JIT handling
++ *
++ * Copyright (c) 2020 osy
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * Credits to: https://siguza.github.io/APRR/
++ * Reversed from /usr/lib/system/libsystem_pthread.dylib
++ */
++
++#ifndef TCG_APPLE_JIT_H
++#define TCG_APPLE_JIT_H
++
++#if defined(__aarch64__) && defined(__APPLE__)
++
++#define _COMM_PAGE_START_ADDRESS        (0x0000000FFFFFC000ULL) /* In TTBR0 */
++#define _COMM_PAGE_APRR_SUPPORT         (_COMM_PAGE_START_ADDRESS + 0x10C)
++#define _COMM_PAGE_APPR_WRITE_ENABLE    (_COMM_PAGE_START_ADDRESS + 0x110)
++#define _COMM_PAGE_APRR_WRITE_DISABLE   (_COMM_PAGE_START_ADDRESS + 0x118)
++
++static __attribute__((__always_inline__)) bool jit_write_protect_supported(void)
++{
++    /* Access shared kernel page at fixed memory location. */
++    uint8_t aprr_support = *(volatile uint8_t *)_COMM_PAGE_APRR_SUPPORT;
++    return aprr_support > 0;
++}
++
++/* write protect enable = write disable */
++static __attribute__((__always_inline__)) void jit_write_protect(int enabled)
++{
++    /* Access shared kernel page at fixed memory location. */
++    uint8_t aprr_support = *(volatile uint8_t *)_COMM_PAGE_APRR_SUPPORT;
++    if (aprr_support == 0 || aprr_support > 3) {
++        return;
++    } else if (aprr_support == 1) {
++        __asm__ __volatile__ (
++            "mov x0, %0\n"
++            "ldr x0, [x0]\n"
++            "msr S3_4_c15_c2_7, x0\n"
++            "isb sy\n"
++            :: "r" (enabled ? _COMM_PAGE_APRR_WRITE_DISABLE
++                            : _COMM_PAGE_APPR_WRITE_ENABLE)
++            : "memory", "x0"
++        );
++    } else {
++        __asm__ __volatile__ (
++            "mov x0, %0\n"
++            "ldr x0, [x0]\n"
++            "msr S3_6_c15_c1_5, x0\n"
++            "isb sy\n"
++            :: "r" (enabled ? _COMM_PAGE_APRR_WRITE_DISABLE
++                            : _COMM_PAGE_APPR_WRITE_ENABLE)
++            : "memory", "x0"
++        );
++    }
++}
++
++#else /* defined(__aarch64__) && defined(__APPLE__) */
++
++static __attribute__((__always_inline__)) bool jit_write_protect_supported(void)
++{
++    return false;
++}
++
++static __attribute__((__always_inline__)) void jit_write_protect(int enabled)
++{
++}
++
++#endif
++
++#endif /* define TCG_APPLE_JIT_H */
+diff --git a/src/java.base/macosx/native/libjava/OSXSCSchemaDefinitions.h b/src/java.base/macosx/native/libjava/OSXSCSchemaDefinitions.h
+new file mode 100644
+index 000000000..122df59ec
+--- /dev/null
++++ b/src/java.base/macosx/native/libjava/OSXSCSchemaDefinitions.h
+@@ -0,0 +1,2347 @@
++/*
++ * Copyright (c) 2000-2020 Apple Inc. All rights reserved.
++ *
++ * @APPLE_LICENSE_HEADER_START@
++ *
++ * This file contains Original Code and/or Modifications of Original Code
++ * as defined in and that are subject to the Apple Public Source License
++ * Version 2.0 (the 'License'). You may not use this file except in
++ * compliance with the License. Please obtain a copy of the License at
++ * http://www.opensource.apple.com/apsl/ and read it before using this
++ * file.
++ *
++ * The Original Code and all software distributed under the License are
++ * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
++ * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUSTAINED WARRANTIES,
++ * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
++ * Please see the License for the specific language governing rights and
++ * limitations under the License.
++ *
++ * @APPLE_LICENSE_HEADER_END@
++ */
++/* This file is a stub placeholder; the full OSXSCSchemaDefinitions.h
++ * content is available at ios-missing-include/SystemConfiguration/ */
