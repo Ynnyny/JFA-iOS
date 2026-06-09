@@ -67,18 +67,22 @@ MMANEOF
 echo "  -> Created ios-override with missing headers"
 
 # -----------------------------------------------------------
-# 1d. Create mach/mach_vm.h stub (iOS SDK explicitly says unsupported)
+# 1d. Create mach/mach_vm.h stub (iOS SDK says unsupported, but types
+#     are already defined in <mach/arm/vm_types.h> — just provide a
+#     header guard bypass so the iOS SDK header can be included safely)
 # -----------------------------------------------------------
 mkdir -p ios-override/include/mach
 cat > ios-override/include/mach/mach_vm.h << 'MACHVMEOF'
 #ifndef _IOS_OVERRIDE_MACH_MACH_VM_H
 #define _IOS_OVERRIDE_MACH_MACH_VM_H
-/* Stub: mach_vm.h is not supported on iOS */
+/* Stub: mach_vm.h declares "unsupported" on iOS via #error.
+   The actual types (mach_vm_offset_t etc) are defined in
+   <mach/arm/vm_types.h> which comes from including <mach/kern_return.h>.
+   We just include the necessary headers without triggering the #error. */
 #include <mach/kern_return.h>
 #include <mach/vm_types.h>
-typedef natural_t mach_vm_offset_t;
-typedef vm_map_t mach_vm_address_t;
-typedef vm_size_t mach_vm_size_t;
+/* The memMapPrinter code includes mach_vm.h for these declarations.
+   On iOS they're in vm_types.h already. */
 #endif
 MACHVMEOF
 
@@ -90,7 +94,8 @@ MACHVMEOF
 echo ">>> Removing X11-specific java.desktop sources..."
 for f in \
   src/java.desktop/unix/classes/sun/awt/X11FontManager.java \
-  src/java.desktop/unix/classes/sun/font/NativeGlyphMapper.java
+  src/java.desktop/unix/classes/sun/font/NativeGlyphMapper.java \
+  src/java.desktop/unix/classes/sun/font/MFontConfiguration.java
 do
   if [ -f "$f" ]; then
     rm -f "$f"
@@ -137,17 +142,50 @@ print('  -> Added #include <sys/mman.h>')
 fi
 
 # -----------------------------------------------------------
-# 2. Add JVM_BUILDJDK marker to buildjdk-spec.gmk.in
+# 2. Fix BUILDJDK linker flags for macOS host
+#    Apple clang masquerading as GCC (TOOLCHAIN_TYPE=gcc) gets
+#    -Wl,-soname which macOS ld doesn't support. Add a check for
+#    BUILD_OS=macosx to use -install_name instead.
 # -----------------------------------------------------------
-echo ">>> Adding JVM_BUILDJDK marker..."
-BUILDJDK_SPEC="make/autoconf/buildjdk-spec.gmk.in"
-if [ -f "$BUILDJDK_SPEC" ] && ! grep -q "JVM_BUILDJDK" "$BUILDJDK_SPEC" 2>/dev/null; then
-  cat >> "$BUILDJDK_SPEC" << 'EOF'
+echo ">>> Fixing BUILDJDK linker flags for macOS host..."
+CFLAGS_M4="make/autoconf/flags-cflags.m4"
+if [ -f "$CFLAGS_M4" ]; then
+  # Replace SET_SHARED_LIBRARY_NAME in the gcc section to handle macOS
+  python3 << 'PYEOF'
+import sys
+with open('make/autoconf/flags-cflags.m4', 'r') as f:
+    content = f.read()
 
-# iOS build: marker to distinguish BUILDJDK from TARGET
-JVM_BUILDJDK := true
-EOF
-  echo "  -> Added JVM_BUILDJDK"
+# Replace the gcc branch's soname line with a macOS-aware version
+# Looking for: SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+# in the gcc section (first occurrence)
+old_line = "SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'"
+new_block = '''if test "x$OPENJDK_BUILD_OS" = xmacosx; then
+    SET_SHARED_LIBRARY_NAME='-Wl,-install_name,@rpath/[$]1'
+  else
+    SET_SHARED_LIBRARY_NAME='-Wl,-soname=[$]1'
+  fi'''
+
+# Only replace the first occurrence (gcc section, not clang else)
+count = content.count(old_line)
+if count > 0:
+    # Replace only first occurrence
+    content = content.replace(old_line, new_block, 1)
+    with open('make/autoconf/flags-cflags.m4', 'w') as f:
+        f.write(content)
+    print(f'  -> Fixed gcc branch ({count} total, 1 replaced)')
+else:
+    print('  -> -soname line not found, trying simpler pattern')
+    # Try with different escaping
+    old_line2 = "SET_SHARED_LIBRARY_NAME='-Wl,-soname=[\$]1'"
+    if old_line2 in content:
+        content = content.replace(old_line2, new_block, 1)
+        with open('make/autoconf/flags-cflags.m4', 'w') as f:
+            f.write(content)
+        print('  -> Fixed gcc branch (alt pattern)')
+    else:
+        print('  -> No -soname found')
+PYEOF
 fi
 
 # -----------------------------------------------------------
