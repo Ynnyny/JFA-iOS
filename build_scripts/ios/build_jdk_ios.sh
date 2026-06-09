@@ -41,8 +41,16 @@ done
 # Generate configure
 # -----------------------------------------------------------
 echo ">>> Running configure (autogen)…"
-if [ -f "common/autoconf/autogen.sh" ]; then
-    bash common/autoconf/autogen.sh
+# Try multiple autogen locations (JDK 17-21: common/autoconf/, JDK 25: make/autoconf/)
+AUTOGEN=""
+for cand in common/autoconf/autogen.sh make/autoconf/autogen.sh; do
+  if [ -f "$cand" ]; then
+    AUTOGEN="$cand"
+    break
+  fi
+done
+if [ -n "$AUTOGEN" ]; then
+  bash "$AUTOGEN"
 fi
 
 # Create build directory
@@ -70,6 +78,40 @@ if [ ${PIPESTATUS[0]} -ne 0 ]; then
     echo "::error::Configure failed — check $BUILD_OUTPUT_DIR/configure.log"
     exit 1
 fi
+
+# -----------------------------------------------------------
+# Patch generated build files for macOS BUILDJDK linker compat
+# Apple clang masquerading as GCC causes -Wl,-soname in the BUILDJDK,
+# which macOS ld doesn't support. Replace with -Wl,-install_name.
+# -----------------------------------------------------------
+echo ">>> Patching generated build files for soname->install_name…"
+python3 << 'PYEOF'
+import os
+pattern = '-Wl,-soname='
+replacement = '-Wl,-install_name,@rpath/'
+count = 0
+for root, dirs, files in os.walk('.'):
+    for fname in files:
+        fpath = os.path.join(root, fname)
+        ext_ok = any(fname.endswith(ext) for ext in ['.gmk', '.mk', '.sh', '.spec'])
+        name_ok = fname in ('spec.gmk', 'generated-configure.sh', 'buildjdk-spec.gmk.in')
+        if not ext_ok and not name_ok:
+            continue
+        try:
+            with open(fpath, 'r') as fh:
+                c = fh.read()
+            if pattern in c:
+                c = c.replace(pattern, replacement)
+                with open(fpath, 'w') as fh:
+                    fh.write(c)
+                count += 1
+                print(f'  -> Patched {fpath}')
+        except (OSError, IOError):
+            pass
+if count == 0:
+    print('  -> No files with -soname found')
+print(f'  -> Patched {count} files')
+PYEOF
 
 # -----------------------------------------------------------
 # Build (make images)

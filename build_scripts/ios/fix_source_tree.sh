@@ -35,18 +35,13 @@ fi
 cat > ios-override/include/sys/mman.h << 'MMANEOF'
 #ifndef _IOS_OVERRIDE_SYS_MMAN_H
 #define _IOS_OVERRIDE_SYS_MMAN_H
-/* iOS sys/mman.h override: include the iOS SDK version first, then add
-   macOS/POSIX constants that iOS deliberately excludes. */
-#include <sys/appleapiopts.h>
-#include <sys/_types/_posix_vint.h>
-#include <sys/_mmap.h>
-/* Include the SDK's native mman.h if available (iOS 16+ SDK has a minimal one) */
-#ifdef __has_include_next
-#if __has_include_next(<sys/mman.h>)
-#include_next <sys/mman.h>
-#endif
-#endif
-/* POSIX basic protection flags (from sys/_types/_posix_vint.h) */
+/* Self-contained sys/mman.h stub for iOS cross-compilation.
+   iOS SDK may have a minimal mman.h or none at all — provide all
+   POSIX/BSD constants needed by HotSpot.  Do NOT include any
+   macOS-specific internal Darwin headers (not available in iOS SDK). */
+#include <sys/types.h>
+
+/* POSIX basic protection flags */
 #ifndef PROT_READ
 #define PROT_READ       0x01
 #endif
@@ -109,7 +104,7 @@ cat > ios-override/include/sys/mman.h << 'MMANEOF'
 /* mincore — not available on iOS, provide stub */
 static inline int mincore(void *addr, size_t len, unsigned char *vec) {
     (void)addr; (void)len; (void)vec;
-    return -1;  /* ENOSYS */
+    return -1;
 }
 #endif /* _IOS_OVERRIDE_SYS_MMAN_H */
 MMANEOF
