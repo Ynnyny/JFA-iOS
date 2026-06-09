@@ -67,6 +67,76 @@ MMANEOF
 echo "  -> Created ios-override with missing headers"
 
 # -----------------------------------------------------------
+# 1d. Create mach/mach_vm.h stub (iOS SDK explicitly says unsupported)
+# -----------------------------------------------------------
+mkdir -p ios-override/include/mach
+cat > ios-override/include/mach/mach_vm.h << 'MACHVMEOF'
+#ifndef _IOS_OVERRIDE_MACH_MACH_VM_H
+#define _IOS_OVERRIDE_MACH_MACH_VM_H
+/* Stub: mach_vm.h is not supported on iOS */
+#include <mach/kern_return.h>
+#include <mach/vm_types.h>
+typedef natural_t mach_vm_offset_t;
+typedef vm_map_t mach_vm_address_t;
+typedef vm_size_t mach_vm_size_t;
+#endif
+MACHVMEOF
+
+# -----------------------------------------------------------
+# 1e. Remove X11-specific java.desktop sources for iOS
+#     (these reference xlib/Motif native code not available on iOS)
+#     macOS uses its own font manager, so these are not needed.
+# -----------------------------------------------------------
+echo ">>> Removing X11-specific java.desktop sources..."
+for f in \
+  src/java.desktop/unix/classes/sun/awt/X11FontManager.java \
+  src/java.desktop/unix/classes/sun/font/NativeGlyphMapper.java
+do
+  if [ -f "$f" ]; then
+    rm -f "$f"
+    echo "  -> Removed: $f"
+  fi
+done
+
+# -----------------------------------------------------------
+# 1b. Clean up partial patch application (reject files from git apply --reject)
+# -----------------------------------------------------------
+echo ">>> Cleaning up partial patches..."
+find "$JDK_DIR" -name "*.rej" -delete 2>/dev/null || true
+# Restore files that were partially patched by re-cloning them
+# We do this for the key files we know are problematic
+for f in \
+  src/hotspot/os/posix/signals_posix.cpp \
+  src/hotspot/os_cpu/bsd_aarch64/icache_bsd_aarch64.hpp
+do
+  if [ -f "$JDK_DIR/$f" ]; then
+    git checkout -- "$f" 2>/dev/null || true
+  fi
+done
+echo "  -> Cleaned up partial patches"
+
+# -----------------------------------------------------------
+# 1c. Add #include <sys/mman.h> to signals_posix.cpp
+#     (needed for PROT_READ etc when iOS SDK lacks sys/mman.h)
+# -----------------------------------------------------------
+echo ">>> Patching signals_posix.cpp..."
+SIGNALS_FILE="src/hotspot/os/posix/signals_posix.cpp"
+if [ -f "$SIGNALS_FILE" ] && ! grep -q '#include <sys/mman.h>' "$SIGNALS_FILE" 2>/dev/null; then
+  python3 -c "
+with open('$SIGNALS_FILE', 'r') as f:
+    lines = f.readlines()
+# Find the line with #include <signal.h> and insert after it
+for i, line in enumerate(lines):
+    if '#include <signal.h>' in line:
+        lines.insert(i + 1, '#include <sys/mman.h>\n')
+        break
+with open('$SIGNALS_FILE', 'w') as f:
+    f.writelines(lines)
+print('  -> Added #include <sys/mman.h>')
+" 2>&1 || echo "  -> Warning: could not patch signals_posix.cpp"
+fi
+
+# -----------------------------------------------------------
 # 2. Add JVM_BUILDJDK marker to buildjdk-spec.gmk.in
 # -----------------------------------------------------------
 echo ">>> Adding JVM_BUILDJDK marker..."
