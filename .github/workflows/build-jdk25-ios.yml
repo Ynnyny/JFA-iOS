@@ -55,23 +55,24 @@ jobs:
           git clone --depth=1 -b jdk-25-ga \
             https://github.com/openjdk/jdk25u src_jdk25u
 
-      - name: Apply iOS patches (if any)
+      - name: Apply iOS patches + source tree fixes
         run: |
-          if [ -d "patches/jre_25/ios" ] && [ "$(ls -A patches/jre_25/ios/*.diff 2>/dev/null)" ]; then
+          # Apply git patches if they apply, but don't fail if they don't
+          if [ -d "patches/jre_25/ios" ] && ls patches/jre_25/ios/*.diff 2>/dev/null; then
             cd src_jdk25u
             for pf in ../patches/jre_25/ios/*.diff; do
-              echo "Applying $pf ..."
+              echo "Trying $pf ..."
               if git apply --check "$pf" 2>/dev/null; then
                 git apply "$pf" && echo "  -> OK"
               else
-                echo "  -> FAILED (rejection files in src_jdk25u/)"
-                git apply --reject "$pf" || true
+                echo "  -> Patch rejected — applying reject files"
+                git apply --reject "$pf" 2>/dev/null || true
               fi
             done
-          else
-            echo "No iOS patches found — building vanilla jdk25u"
-            echo "WARNING: build will likely fail without iOS-specific patches"
+            cd ..
           fi
+          # Always run the source tree fix script for iOS-specific workarounds
+          bash build_scripts/ios/fix_source_tree.sh
 
       - name: Build JDK 25 for iOS
         run: |

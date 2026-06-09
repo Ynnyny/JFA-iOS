@@ -23,6 +23,15 @@ export BUILD_OUTPUT_DIR="$BUILD_DIR_ABS"
 # -----------------------------------------------------------
 # Base configure arguments for iOS cross-compilation
 # -----------------------------------------------------------
+# Derive source tree root (either src_jdk25u or workspace root)
+if [ -d "$SCRIPT_DIR/../../src_jdk25u/ios-override/include" ]; then
+  IOS_OVERRIDE_DIR="$SCRIPT_DIR/../../src_jdk25u/ios-override/include"
+elif [ -d "$PWD/src_jdk25u/ios-override/include" ]; then
+  IOS_OVERRIDE_DIR="$PWD/src_jdk25u/ios-override/include"
+else
+  IOS_OVERRIDE_DIR=""
+fi
+
 CONFIGURE_ARGS="
 --openjdk-target=aarch64-apple-ios
 --with-sysroot=$(xcrun --sdk iphoneos --show-sdk-path)
@@ -45,6 +54,14 @@ CONFIGURE_ARGS="
   --disable-ccache
   --with-cups=$(cd "$SCRIPT_DIR/../.." && pwd)/ios-missing-include
 "
+
+# Add ios-override include path if available
+if [ -n "$IOS_OVERRIDE_DIR" ]; then
+  CONFIGURE_ARGS="$CONFIGURE_ARGS
+  --with-extra-cflags=-I$IOS_OVERRIDE_DIR
+  --with-extra-cxxflags=-I$IOS_OVERRIDE_DIR
+  "
+fi
 
 # Static build (required for iOS) + JRE-only build
 CONFIGURE_ARGS="$CONFIGURE_ARGS
